@@ -3,6 +3,9 @@ VARYING_ vec3 vNormal;
 VARYING_ vec3 worldPosition;
 VARYING_ float nightRatio;
 
+uniform highp vec3 cameraOffset;
+uniform vec3 cameraPosition;
+
 #if USE_ARRAY_TEXTURE
 uniform sampler2DArray baseTexture;
 VARYING_ vec3 varTexCoord;
@@ -40,6 +43,14 @@ float mtsmoothstep(in float edge0, in float edge1, in float x)
 }
 #endif
 
+float shadowCutoff(float x) {
+#if defined(ENABLE_TRANSLUCENT_FOLIAGE) && MATERIAL_TYPE == TILE_MATERIAL_WAVING_LEAVES
+	return mtsmoothstep(0.0, 0.002, x);
+#else
+	return step(0.0, x);
+#endif
+}
+
 vec3 getLightSpacePosition()
 {
 	return shadow_position * 0.5 + 0.5;
@@ -48,7 +59,8 @@ vec3 getLightSpacePosition()
 float getHardShadow(sampler2D shadowsampler, vec2 smTexCoord, float realDistance)
 {
 	float texDepth = texture2D(shadowsampler, smTexCoord.xy).r;
-	return step(0.0, realDistance - texDepth);
+	float visibility = shadowCutoff(realDistance - texDepth);
+	return visibility;
 }
 
 #define PCFBOUND 1.0
@@ -91,9 +103,15 @@ void main(void)
 
 		float adjusted_night_ratio = pow(max(0.0, nightRatio), 0.6);
 
+		float shadow_uncorrected = shadow_int;
+
 		const float self_shadow_cutoff_cosine = 0.035;
 		if (f_normal_length != 0.0 && cosLight < self_shadow_cutoff_cosine) {
 			shadow_int = max(shadow_int, 1.0 - clamp(cosLight, 0.0, self_shadow_cutoff_cosine) / self_shadow_cutoff_cosine);
+
+#if (MATERIAL_TYPE == TILE_MATERIAL_WAVING_LEAVES || MATERIAL_TYPE == TILE_MATERIAL_WAVING_PLANTS)
+			shadow_uncorrected = mix(shadow_int, shadow_uncorrected, clamp(distance_rate * 4.0 - 3.0, 0.0, 1.0));
+#endif
 		}
 
 		shadow_int *= f_adj_shadow_strength;
@@ -111,8 +129,17 @@ void main(void)
 		finalColor.rgb =
 			adjusted_night_ratio * night_part +
 			(1.0 - adjusted_night_ratio) * day_part;
+
+		vec3 viewVec = normalize(worldPosition + cameraOffset - cameraPosition);
+
+#if (MATERIAL_TYPE == TILE_MATERIAL_WAVING_PLANTS || MATERIAL_TYPE == TILE_MATERIAL_WAVING_LEAVES) && defined(ENABLE_TRANSLUCENT_FOLIAGE)
+		finalColor.rgb += 4.0 * dayLight * texColor.rgb * normalize(texColor.rgb * varColor.rgb * varColor.rgb)
+			* f_adj_shadow_strength * pow(max(-dot(v_LightDirection, viewVec), 0.0), 4.0)
+			* max(1.0 - shadow_uncorrected, 0.0);
+#endif
 	}
 #endif
 
+	finalColor.a = texColor.a;
 	gl_FragData[0] = finalColor;
 }
