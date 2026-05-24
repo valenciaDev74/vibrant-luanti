@@ -103,8 +103,10 @@ void main(void)
 
 		vec3 day_part = finalColor.rgb * (1.0 - shadow_int * (1.0 - shadow_tint));
 
-		float darkness = 1.0 - smoothstep(0.0, 0.05, max(finalColor.r, max(finalColor.g, finalColor.b)));
-		vec3 night_part = mix(finalColor.rgb, night_ambient, darkness);
+		float brightness = max(finalColor.r, max(finalColor.g, finalColor.b));
+		float darkness = 1.0 - smoothstep(0.0, 0.05, brightness);
+		float ambientWeight = clamp(brightness / 0.05, 0.0, 1.0);
+		vec3 night_part = mix(finalColor.rgb, night_ambient, darkness * ambientWeight * ambientWeight);
 
 		finalColor.rgb =
 			adjusted_night_ratio * night_part +

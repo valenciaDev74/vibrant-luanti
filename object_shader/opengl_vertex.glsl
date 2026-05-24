@@ -15,7 +15,7 @@ uniform sampler2D baseTexture;
 VARYING_ vec2 varTexCoord;
 #endif
 
-const vec3 artificialLight = vec3(1.0, 0.85, 0.45);
+const vec3 artificialLight = vec3(1.0, 0.93, 0.65);
 
 #ifdef USE_SKINNING
 layout (std140) uniform JointMatrices {
