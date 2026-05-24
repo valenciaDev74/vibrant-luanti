@@ -98,10 +98,17 @@ void main(void)
 
 		shadow_int *= f_adj_shadow_strength;
 
+		vec3 shadow_tint = vec3(0.02, 0.06, 0.92);
+		vec3 night_ambient = vec3(0.1059, 0.1490, 0.2314);
+
+		vec3 day_part = finalColor.rgb * (1.0 - shadow_int * (1.0 - shadow_tint));
+
+		float darkness = 1.0 - smoothstep(0.0, 0.05, max(finalColor.r, max(finalColor.g, finalColor.b)));
+		vec3 night_part = mix(finalColor.rgb, night_ambient, darkness);
+
 		finalColor.rgb =
-			adjusted_night_ratio * finalColor.rgb +
-			(1.0 - adjusted_night_ratio) * (
-				finalColor.rgb * (1.0 - shadow_int));
+			adjusted_night_ratio * night_part +
+			(1.0 - adjusted_night_ratio) * day_part;
 	}
 #endif
 

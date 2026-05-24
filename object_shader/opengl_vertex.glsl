@@ -15,7 +15,7 @@ uniform sampler2D baseTexture;
 VARYING_ vec2 varTexCoord;
 #endif
 
-const vec3 artificialLight = vec3(1.04, 1.04, 1.04);
+const vec3 artificialLight = vec3(1.0, 0.85, 0.45);
 
 #ifdef USE_SKINNING
 layout (std140) uniform JointMatrices {
@@ -104,7 +104,7 @@ void main(void)
 
 	vec4 color = inVertexColor;
 	nightRatio = 1.0 - color.a;
-	color.rgb = color.rgb * (color.a * dayLight.rgb + nightRatio * artificialLight.rgb) * 2.0;
+	color.rgb = color.rgb * (color.a * dayLight.rgb * vec3(1.0, 0.92, 0.65) + nightRatio * artificialLight.rgb) * 2.0;
 	color.a = 1.0;
 	varColor = clamp(color, 0.0, 1.0);
 
