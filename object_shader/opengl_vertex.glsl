@@ -1,21 +1,38 @@
 uniform mat4 mWorld;
 uniform vec3 dayLight;
 uniform float animationTimer;
+uniform lowp vec4 materialColor;
 
-VARYING_ vec4 varColor;
 VARYING_ vec3 vNormal;
 VARYING_ vec3 worldPosition;
-VARYING_ float nightRatio;
-
-#if USE_ARRAY_TEXTURE
-uniform sampler2DArray baseTexture;
-VARYING_ vec3 varTexCoord;
-#else
-uniform sampler2D baseTexture;
-VARYING_ vec2 varTexCoord;
+VARYING_ lowp vec4 varColor;
+CENTROID_ VARYING_ mediump vec2 varTexCoord;
+#ifdef USE_ARRAY_TEXTURE
+flat VARYING_ uint varTexLayer;
 #endif
 
+#ifdef ENABLE_DYNAMIC_SHADOWS
+	// shadow uniforms
+	uniform vec3 v_LightDirection;
+	uniform float f_textureresolution;
+	uniform mat4 m_ShadowViewProj;
+	uniform float f_shadowfar;
+	uniform float f_shadow_strength;
+	uniform float f_timeofday;
+	uniform vec4 CameraPos;
+
+	VARYING_ float cosLight;
+	VARYING_ float adj_shadow_strength;
+	VARYING_ float f_normal_length;
+	VARYING_ vec3 shadow_position;
+	VARYING_ float perspective_factor;
+#endif
+
+VARYING_ highp vec3 eyeVec;
+VARYING_ float nightRatio;
+// Color of the light emitted by the light sources.
 const vec3 artificialLight = vec3(1.0, 0.93, 0.65);
+VARYING_ float vIDiff;
 
 #ifdef USE_SKINNING
 layout (std140) uniform JointMatrices {
@@ -24,22 +41,10 @@ layout (std140) uniform JointMatrices {
 #endif
 
 #ifdef ENABLE_DYNAMIC_SHADOWS
-uniform vec3 v_LightDirection;
-uniform float f_textureresolution;
-uniform mat4 m_ShadowViewProj;
-uniform float f_shadowfar;
-uniform float f_shadow_strength;
-uniform float f_timeofday;
-uniform vec4 CameraPos;
+
 uniform float xyPerspectiveBias0;
 uniform float xyPerspectiveBias1;
 uniform float zPerspectiveBias;
-
-VARYING_ float cosLight;
-VARYING_ float adj_shadow_strength;
-VARYING_ float f_normal_length;
-VARYING_ vec3 shadow_position;
-VARYING_ float perspective_factor;
 
 vec4 getRelativePosition(in vec4 position)
 {
@@ -53,7 +58,8 @@ vec4 getRelativePosition(in vec4 position)
 float getPerspectiveFactor(in vec4 relativePosition)
 {
 	float pDistance = length(relativePosition.xy);
-	return pDistance * xyPerspectiveBias0 + xyPerspectiveBias1;
+	float pFactor = pDistance * xyPerspectiveBias0 + xyPerspectiveBias1;
+	return pFactor;
 }
 
 vec4 applyPerspectiveDistortion(in vec4 position)
@@ -75,7 +81,19 @@ float mtsmoothstep(in float edge0, in float edge1, in float x)
 	return t * t * (3.0 - 2.0 * t);
 }
 #endif
+
 #endif
+
+
+float directional_ambient(vec3 normal)
+{
+	vec3 v = normal * normal;
+
+	if (normal.y < 0.0)
+		return dot(v, vec3(0.670820, 0.447213, 0.836660));
+
+	return dot(v, vec3(0.670820, 1.000000, 0.836660));
+}
 
 void main(void)
 {
@@ -83,7 +101,9 @@ void main(void)
 	uvec4 jids = inVertexJointIDs;
 	vec4 skinPos = inVertexPosition;
 	vec3 skinNormal = inVertexNormal;
+	// Alternatively: Introduce neutral bone at index 0 with identity matrix?
 	if (inVertexWeights != vec4(0.0)) {
+		// Note that this deals correctly with a disabled vertex attribute.
 		mat4 mSkin =
 				inVertexWeights.x * joints[jids.x] +
 				inVertexWeights.y * joints[jids.y] +
@@ -97,30 +117,55 @@ void main(void)
 	vec3 skinNormal = inVertexNormal;
 #endif
 
+#ifdef USE_ARRAY_TEXTURE
+	varTexLayer = inVertexAux;
+#endif
+	varTexCoord = (mTexture * vec4(inTexCoord0.xy, 1.0, 1.0)).st;
+
 	gl_Position = mWorldViewProj * skinPos;
 
+	vNormal = (mWorld * vec4(skinNormal, 0.0)).xyz;
 	worldPosition = (mWorld * skinPos).xyz;
-	vNormal = skinNormal;
+	eyeVec = -(mWorldView * skinPos).xyz;
+
+#if (MATERIAL_TYPE == TILE_MATERIAL_PLAIN) || (MATERIAL_TYPE == TILE_MATERIAL_PLAIN_ALPHA)
+	vIDiff = 1.0;
+#else
+	// This is intentional comparison with zero without any margin.
+	// If normal is not equal to zero exactly, then we assume it's a valid, just not normalized vector
+	vIDiff = length(vNormal) == 0.0
+		? 1.0
+		: directional_ambient(normalize(vNormal));
+#endif
 
 	vec4 color = inVertexColor;
+
+	color *= materialColor;
+
+	// The alpha gives the ratio of sunlight in the incoming light.
 	nightRatio = 1.0 - color.a;
-	color.rgb = color.rgb * (color.a * dayLight.rgb * vec3(1.0, 0.92, 0.65) + nightRatio * artificialLight.rgb) * 2.0;
+	color.rgb = color.rgb * (color.a * dayLight.rgb * vec3(1.0, 0.92, 0.65) +
+		nightRatio * artificialLight.rgb) * 2.0;
 	color.a = 1.0;
+
+	// Emphase blue a bit in darker places
+	// See C++ implementation in mapblock_mesh.cpp final_color_blend()
+	float brightness = (color.r + color.g + color.b) / 3.0;
+	color.b += max(0.0, 0.021 - abs(0.2 * brightness - 0.021) +
+		0.07 * brightness);
+
 	varColor = clamp(color, 0.0, 1.0);
 
-	#if USE_ARRAY_TEXTURE
-	varTexCoord = vec3(inTexCoord0.st, float(inVertexAux));
-	#else
-	varTexCoord = inTexCoord0.st;
-	#endif
 
 #ifdef ENABLE_DYNAMIC_SHADOWS
 	if (f_shadow_strength > 0.0) {
-		vec3 nNormal;
+		vec3 nNormal = normalize(vNormal);
 		f_normal_length = length(vNormal);
 
+		/* normalOffsetScale is in world coordinates (1/10th of a meter)
+		   z_bias is in light space coordinates */
 		float normalOffsetScale, z_bias;
-		float pFactor = getPerspectiveFactor(getRelativePosition(m_ShadowViewProj * mWorld * skinPos));
+		float pFactor = getPerspectiveFactor(getRelativePosition(m_ShadowViewProj * mWorld * inVertexPosition));
 		if (f_normal_length > 0.0) {
 			nNormal = normalize(vNormal);
 			cosLight = max(1e-5, dot(nNormal, -v_LightDirection));
@@ -128,7 +173,8 @@ void main(void)
 			normalOffsetScale = 2.0 * pFactor * pFactor * sinLight * min(f_shadowfar, 500.0) /
 					xyPerspectiveBias1 / f_textureresolution;
 			z_bias = 1.0 * sinLight / cosLight;
-		} else {
+		}
+		else {
 			nNormal = vec3(0.0);
 			cosLight = clamp(dot(v_LightDirection, normalize(vec3(v_LightDirection.x, 0.0, v_LightDirection.z))), 1e-2, 1.0);
 			float sinLight = pow(1.0 - pow(cosLight, 2.0), 0.5);
@@ -137,7 +183,7 @@ void main(void)
 		}
 		z_bias *= pFactor * pFactor / f_textureresolution / f_shadowfar;
 
-		shadow_position = applyPerspectiveDistortion(m_ShadowViewProj * mWorld * (skinPos + vec4(normalOffsetScale * nNormal, 0.0))).xyz;
+		shadow_position = applyPerspectiveDistortion(m_ShadowViewProj * mWorld * (inVertexPosition + vec4(normalOffsetScale * nNormal, 0.0))).xyz;
 #if !defined(ENABLE_TRANSLUCENT_FOLIAGE) || MATERIAL_TYPE != TILE_MATERIAL_WAVING_LEAVES
 		shadow_position.z -= z_bias;
 #endif
