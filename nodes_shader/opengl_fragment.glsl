@@ -510,7 +510,7 @@ void main(void)
 
 		shadow_int *= f_adj_shadow_strength;
 
-		const vec3 shadow_tint = vec3(0.01, 0.03, 0.96);
+		const vec3 shadow_tint = vec3(0.0, 0.0, 1.0);
 		const vec3 night_ambient = vec3(0.1059, 0.1490, 0.2314);
 
 		vec3 day_part = col.rgb * (1.0 - shadow_int * (1.0 - shadow_color) * (1.0 - shadow_tint)) + dayLight * shadow_color * shadow_int;
@@ -571,9 +571,19 @@ void main(void)
 			float water_sun_height = max(dot(v_LightDirection, vec3(0,1,0)), 0.0);
 			float spec_exponent = mix(6.0, 2.0, water_sun_height);
 			spec_angle = pow(max(dot(reflect_ray, viewVec), 0.0), spec_exponent);
+			float tex_brightness = max(base.r, max(base.g, base.b));
+			float dark_factor = smoothstep(0.8, 0.93, tex_brightness);
+			spec_intensity *= mix(0.2, 1.0, dark_factor) * 2.5;
+			col.rgb *= mix(0.85, 0.9, dark_factor);
+			col.rgb = mix(col.rgb, vec3(0.005, 0.07, 0.1), 0.4);
+			base.a = min(1.0, base.a * 1.15);
 		}
 #else
 		float spec_intensity = 1.0;
+		float tex_emit = max(base.r, max(base.g, base.b));
+		float tex_min = min(base.r, min(base.g, base.b));
+		float spec_boost = 1.0 + smoothstep(0.08, 0.2, tex_emit - tex_min) * smoothstep(0.5, 0.8, tex_emit) * 3.0;
+		spec_intensity *= spec_boost;
 #endif
 
 		vec3 ref_color = dayLight * vec3(1.0, 0.97, 0.8) * spec_intensity * spec_angle * fresnel;
@@ -608,6 +618,11 @@ void main(void)
 	// fog color's brightest value. We then blend our base color with this to make the fog.
 	col = mix(fogColor * pow(fogColor / fogColorMax, vec4(2.0 * clarity)), col, clarity);
 	col = vec4(col.rgb, base.a);
+
+	float tex_emit = max(base.r, max(base.g, base.b));
+	float tex_min = min(base.r, min(base.g, base.b));
+	float emit_mask = smoothstep(0.5, 0.7, tex_emit) * smoothstep(0.2, 0.4, tex_emit - tex_min) * step(tex_min, 0.6);
+	col.rgb += emit_mask * col.rgb * 0.15;
 
 	gl_FragData[0] = col;
 }
