@@ -622,7 +622,7 @@ void main(void)
 	float tex_emit = max(base.r, max(base.g, base.b));
 	float tex_min = min(base.r, min(base.g, base.b));
 	float emit_mask = smoothstep(0.5, 0.7, tex_emit) * smoothstep(0.2, 0.4, tex_emit - tex_min) * step(tex_min, 0.6);
-	col.rgb += emit_mask * col.rgb * 0.15;
+	col.rgb += emit_mask * col.rgb * 0.3;
 
 	gl_FragData[0] = col;
 }
