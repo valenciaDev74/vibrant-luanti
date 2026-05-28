@@ -53,8 +53,8 @@ highp vec3 uncharted2Tonemap(highp vec3 x)
 vec4 applyToneMapping(vec4 color)
 {
 	color = vec4(pow(color.rgb, vec3(2.2)), color.a);
-	const float gamma = 1.6;
-	const float exposureBias = 5.5;
+	const float gamma = 1.8;
+	const float exposureBias = 3.5;
 	color.rgb = uncharted2Tonemap(exposureBias * color.rgb);
 	vec3 whiteScale = vec3(1.036015346);
 	color.rgb *= whiteScale;
